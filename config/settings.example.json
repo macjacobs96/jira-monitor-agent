@@ -1,0 +1,45 @@
+{
+  "jira": {
+    "url": "https://your-jira.example.com",
+    "project": "E0V",
+    "auth": {
+      "username": "your-username",
+      "password": "your-password"
+    },
+    "jql_filters": {
+      "assignee": "经办人姓名",
+      "custom_fields": [
+        {"name": "控制器(单选)", "value": "ICC-视觉"}
+      ]
+    },
+    "fields_to_fetch": "summary,status,priority,assignee,reporter,created,updated,resolutiondate,issuetype,labels,components,fixVersions,duedate"
+  },
+  "filter": {
+    "statuses": ["已分配", "分析中", "修复中"],
+    "categories": [
+      {"name": "视觉", "keyword": null, "emoji": "👁️", "match": "exclude", "exclude_keyword": "健康检测"},
+      {"name": "健康检测", "keyword": "健康检测", "emoji": "💊", "match": "include"}
+    ]
+  },
+  "feishu": {
+    "app_id": "your-feishu-app-id",
+    "app_secret": "your-feishu-app-secret",
+    "chat_id": "your-chat-id",
+    "chat_type": "group"
+  },
+  "schedule": {
+    "fetch_times": ["10:30", "15:30"],
+    "report_times": ["11:00", "16:00"],
+    "timezone": "Asia/Shanghai"
+  },
+  "format": {
+    "template": "{idx}. [{key}]({url}) / {status} / {priority} / {keyword} / {summary}",
+    "show_priority_stats": true,
+    "show_overdue": true,
+    "quips": true
+  },
+  "server": {
+    "sync_endpoint": "/api/jira/sync",
+    "port": 80
+  }
+}
