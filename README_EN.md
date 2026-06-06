@@ -1,7 +1,8 @@
 <p align="center">
   <a href="README.md">🇨🇳 中文</a> &nbsp;|&nbsp;
   <a href="README_EN.md">🇺🇸 English</a> &nbsp;|&nbsp;
-  <a href="README_JA.md">🇯🇵 日本語</a>
+  <a href="README_JA.md">🇯🇵 日本語</a> &nbsp;|&nbsp;
+  <a href="README_AR.md">🇸🇦 العربية</a>
 </p>
 
 ---
