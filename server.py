@@ -104,6 +104,20 @@ class JiraHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(b'{"status":"ok","message":"use POST to trigger report"}')
+        elif self.path == "/jira_fetcher_v2.py":
+            # 直接返回脚本内容，方便本地 curl 下载
+            script_path = os.path.join(os.path.dirname(__file__), "jira_fetcher_v2.py")
+            try:
+                with open(script_path, "rb") as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+            except FileNotFoundError:
+                self.send_response(404)
+                self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()

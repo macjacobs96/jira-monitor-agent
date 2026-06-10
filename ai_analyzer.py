@@ -300,5 +300,12 @@ def run_full_analysis(data_file=None):
     return result
 
 
+def cleanup_temp():
+    """清理临时分析目录"""
+    import shutil
+    if os.path.exists(TEMP_DIR):
+        shutil.rmtree(TEMP_DIR, ignore_errors=True)
+
+
 if __name__ == "__main__":
     run_full_analysis()

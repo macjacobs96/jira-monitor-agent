@@ -1,28 +1,48 @@
 """
-Jira 数据采集脚本 v2 —— AI 根因分析增强版
-新增: Issue 详情(描述+评论) + 附件下载(log/zip解压)
-用法: python3 jira_fetcher_v2.py
+Jira 数据采集脚本 — 服务器版（通过 frp 代理访问内网 Jira）
+用法: python3 jira_fetcher_server.py
+     python3 jira_fetcher_server.py --no-analyze   # 只拉数据不分析
+     python3 jira_fetcher_server.py --diag          # 诊断连接
 """
-import requests, json, sys, os, io, zipfile, base64, tempfile, shutil
+import requests, json, sys, os, io, zipfile, time
 from datetime import datetime
 
-JIRA_URL = "https://yfjira.mychery.com"
+# ═══════════════════════════════════════════
+# 配置
+# ═══════════════════════════════════════════
+
+# frp 代理：通过 Mac 隧道访问内网 Jira
+JIRA_URL = "https://localhost:18443"
 JIRA_USER = "senseautoAPI"
 JIRA_PASS = "senseautoAPI33@"
 PROJECT_KEY = "E0V"
 ASSIGNEE = "商 汤API"
 CONTROLLER_FIELD = "customfield_10500"
 CONTROLLER_VALUE = "ICC-视觉"
-SERVER_URL = "http://43.159.43.36/api/jira/analyze"  # 新端点
+
+DATA_DIR = "/root/jira_agent/data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+MAX_ATTACH_SIZE = 5 * 1024 * 1024      # 单附件最大 5MB
+TOTAL_ATTACH_LIMIT = 20 * 1024 * 1024  # 总附件限制 20MB
+
+# ── Session ────────────────────────────────────────────
 
 session = requests.Session()
 session.auth = (JIRA_USER, JIRA_PASS)
-session.headers.update({"Accept": "application/json", "User-Agent": "Mozilla/5.0"})
-session.verify = False  # 公司内网可能有证书问题
-requests.packages.urllib3.disable_warnings()
+session.verify = False  # frp 隧道 TLS 证书域名不匹配（localhost vs yfjira.mychery.com）
+session.headers.update({
+    "Accept": "application/json",
+    "Host": "yfjira.mychery.com",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+})
 
-MAX_ATTACH_SIZE = 5 * 1024 * 1024  # 单附件最大 5MB
-TOTAL_ATTACH_LIMIT = 20 * 1024 * 1024  # 总附件限制 20MB
+# 禁 SSL 警告
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 # ── Issue 详情获取 ──────────────────────────────────────
@@ -55,7 +75,6 @@ def download_attachment(att, issue_key):
     if size > MAX_ATTACH_SIZE:
         return {"filename": filename, "content": f"[文件过大 {size/1024/1024:.1f}MB, 跳过]", "size": size}
 
-    # 关心日志/文本/zip 类附件
     interested = any(
         filename.lower().endswith(ext) or t in (mime or "").lower()
         for ext in [".log", ".txt", ".text", ".zip", ".gz", ".out", ".csv", ".json"]
@@ -72,7 +91,6 @@ def download_attachment(att, issue_key):
 
         raw = resp.content
 
-        # ZIP 解压
         if filename.lower().endswith(".zip"):
             results = []
             try:
@@ -80,14 +98,13 @@ def download_attachment(att, issue_key):
                     for name in zf.namelist():
                         try:
                             text = zf.read(name).decode("utf-8", errors="replace")
-                            results.append(f"--- {name} ---\n{text[:200000]}")  # 最多20万字符
+                            results.append(f"--- {name} ---\n{text[:200000]}")
                         except:
                             results.append(f"[{name} 无法解码]")
                 return {"filename": filename, "content": "\n".join(results), "size": size}
             except Exception as e:
                 return {"filename": filename, "content": f"[解压失败: {e}]", "size": size}
 
-        # 纯文本
         try:
             text = raw.decode("utf-8", errors="replace")
             return {"filename": filename, "content": text[:200000], "size": size}
@@ -101,7 +118,6 @@ def download_attachment(att, issue_key):
 # ── 主采集流程 ──────────────────────────────────────────
 
 def fetch_issues_basic():
-    """拉取基础列表（与 v1 相同）"""
     jql = f'project={PROJECT_KEY} AND assignee="{ASSIGNEE}"'
     cf_jql = f' AND "{CONTROLLER_FIELD}" ~ "{CONTROLLER_VALUE}"'
 
@@ -118,6 +134,7 @@ def fetch_issues_basic():
             params={"jql": jql_full, "maxResults": 0}, timeout=30)
         resp.raise_for_status()
     except:
+        print("⚠️ 控制器过滤失败，退回不过滤")
         jql_full = jql
 
     while True:
@@ -136,14 +153,12 @@ def fetch_issues_basic():
 
 
 def enrich_issues(issues):
-    """为每个 Issue 拉取详情和附件"""
     enriched = []
     total_attach = 0
     for idx, issue in enumerate(issues):
         key = issue.get("key", "?")
         status = issue.get("fields", {}).get("status", {}).get("name", "")
 
-        # 跳过快关闭的
         if status in ["已关闭", "已解决", "完成"]:
             enriched.append(issue)
             print(f"  [{idx+1}/{len(issues)}] {key} ⏭️ 已关闭,跳过")
@@ -158,7 +173,6 @@ def enrich_issues(issues):
             enriched.append(issue)
             continue
 
-        # 下载附件
         att_contents = []
         for att in details.get("attachments", []):
             if total_attach >= TOTAL_ATTACH_LIMIT:
@@ -170,7 +184,6 @@ def enrich_issues(issues):
             except Exception as e:
                 att_contents.append({"filename": att.get("filename", ""), "content": f"[下载失败: {e}]"})
 
-        # 注入增强数据
         issue["_description"] = details.get("description", "")
         issue["_comments"] = details.get("comments", [])
         issue["_attachments"] = att_contents
@@ -181,33 +194,85 @@ def enrich_issues(issues):
     return enriched
 
 
-def push_to_server(issues):
-    """推送到服务器 AI 分析端点"""
+def save_data(issues):
     payload = {
         "project": PROJECT_KEY,
         "fetched_at": datetime.now().isoformat(),
         "total": len(issues),
         "issues": issues,
-        "analyze": True,  # 触发 AI 分析
     }
+    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    path = os.path.join(DATA_DIR, f"jira_{ts}.json")
+    with open(path, "w") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"💾 已保存 {len(issues)} 条 → {path}")
+    return path
 
-    print(f"📤 推送 {len(issues)} 条到 {SERVER_URL}...")
-    resp = requests.post(SERVER_URL, json=payload, timeout=120)
-    resp.raise_for_status()
-    result = resp.json()
-    print(f"✅ 服务器响应: {result.get('status', '?')}")
-    return result
+
+# ── 诊断 ────────────────────────────────────────────────
+
+def diag():
+    print("🔍 frp 代理诊断\n")
+    print(f"   目标: {JIRA_URL}")
+    print(f"   项目: {PROJECT_KEY}")
+    print(f"   经办人: {ASSIGNEE}\n")
+
+    # 1. 连通性
+    print("📡 测试连通性...")
+    try:
+        resp = session.get(f"{JIRA_URL}/rest/api/2/serverInfo", timeout=10)
+        print(f"   HTTP {resp.status_code}")
+        if resp.status_code == 200:
+            info = resp.json()
+            print(f"   Jira 版本: {info.get('version','?')}")
+            print(f"   ✅ 连通正常！")
+    except Exception as e:
+        print(f"   ❌ 连接失败: {e}")
+        print("\n   可能原因:")
+        print("   1. Mac 端 frpc 未启动")
+        print("   2. Mac 网络无法访问 Jira")
+        print("   3. Mac 防火墙阻止了 frpc")
+        return
+
+    # 2. 查询测试
+    print(f"\n📋 查询测试...")
+    try:
+        resp = session.get(f"{JIRA_URL}/rest/api/2/search",
+            params={"jql": f"project={PROJECT_KEY}", "maxResults": 1, "fields": "summary"},
+            timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            total = data.get("total", 0)
+            issues = data.get("issues", [])
+            sample = issues[0]["key"] if issues else "N/A"
+            print(f"   项目 {PROJECT_KEY}: {total} 条 (示例: {sample})")
+    except Exception as e:
+        print(f"   ❌ {e}")
 
 
-# ── 入口 ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════
+# 入口
+# ══════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    print(f"🚀 Jira AI 分析采集 v2 | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"   {PROJECT_KEY} | {ASSIGNEE} | {CONTROLLER_VALUE}\n")
+    if "--diag" in sys.argv:
+        diag()
+        sys.exit(0)
+
+    do_analyze = "--no-analyze" not in sys.argv
+
+    print(f"🚀 Jira 服务器版采集 | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"   代理: {JIRA_URL} | 项目: {PROJECT_KEY} | 经办人: {ASSIGNEE}\n")
 
     # Step 1: 基础列表
     print("📋 Step 1: 拉取基础列表...")
-    issues = fetch_issues_basic()
+    try:
+        issues = fetch_issues_basic()
+    except Exception as e:
+        print(f"❌ 拉取失败: {e}")
+        print("   请确认 Mac 端 frpc 已启动: ./frpc -c frpc.toml")
+        sys.exit(1)
+
     print(f"   共 {len(issues)} 条\n")
 
     # Step 2: 增强数据
@@ -215,8 +280,43 @@ if __name__ == "__main__":
     issues = enrich_issues(issues)
     print()
 
-    # Step 3: 推送服务器
-    print("📤 Step 3: 推送服务器 AI 分析...")
-    result = push_to_server(issues)
+    # Step 3: 保存本地
+    print("💾 Step 3: 保存数据...")
+    data_path = save_data(issues)
 
-    print("\n🎉 完成！AI 分析中，稍后查看飞书推送。")
+    # Step 4: AI 分析（服务器本地执行）
+    if do_analyze:
+        print("\n🧠 Step 4: AI 根因分析...")
+        import threading
+        def analyze_and_report():
+            try:
+                from ai_analyzer import run_full_analysis, cleanup_temp
+                from prd_scope import enrich_analysis_with_scope
+                from dual_report import dual_output
+
+                print(f"[AI] 开始分析 {data_path}")
+                result = run_full_analysis(data_file=data_path)
+                total = result.get("total_analyzed", 0)
+
+                if total > 0:
+                    print(f"[AI] {total} 条根因分析完成，PRD 范围判定...")
+                    result = enrich_analysis_with_scope(result)
+                    scope = result.get("scope_summary", {})
+                    print(f"[AI] PRD内:{scope.get('in_scope',0)} PRD外:{scope.get('out_of_scope',0)}")
+                    print(f"[AI] 推送双输出报告...")
+                    dual_output()
+                    print(f"[AI] 报告已推送")
+                else:
+                    print("[AI] 今日无待处理 Case")
+
+                cleanup_temp()
+            except Exception as e:
+                print(f"[AI] 分析失败: {e}")
+                import traceback
+                traceback.print_exc()
+
+        t = threading.Thread(target=analyze_and_report, daemon=True)
+        t.start()
+        print("   AI 分析已启动（后台运行）")
+
+    print("\n🎉 采集完成！")

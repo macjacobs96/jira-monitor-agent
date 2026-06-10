@@ -44,6 +44,13 @@
           "main_cat": "健康检测",
           "sub_cat": "UI渲染",
           "severity": "中"
+        },
+        {
+          "time": "2026-06-08T18:38:17.771458",
+          "status": "修复中",
+          "main_cat": "健康检测",
+          "sub_cat": "UI渲染",
+          "severity": "中"
         }
       ],
       "categories": [
@@ -1884,7 +1891,25 @@
       "sub_cats": [
         "账户登录"
       ]
+    },
+    "E0V-38194": {
+      "first_seen": "2026-06-08T18:38:14.910413",
+      "occurrences": [
+        {
+          "time": "2026-06-08T18:38:14.910413",
+          "status": "已分配",
+          "main_cat": "健康检测",
+          "sub_cat": "UI渲染",
+          "severity": "中"
+        }
+      ],
+      "main_cats": [
+        "健康检测"
+      ],
+      "sub_cats": [
+        "UI渲染"
+      ]
     }
   },
-  "last_updated": "2026-06-05T18:31:41.815355"
+  "last_updated": "2026-06-08T18:38:17.771481"
 }

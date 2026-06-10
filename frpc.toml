@@ -1,0 +1,20 @@
+# frpc 客户端配置 — 放在 Mac 上运行
+# 文件: /Users/mac/jira_agent/frpc.toml
+
+serverAddr = "43.159.43.36"
+serverPort = 7000
+auth.token = "jira_frp_2026_secure"
+
+[[proxies]]
+name = "jira_proxy"
+type = "tcp"
+localIP = "yfjira.mychery.com"
+localPort = 443
+remotePort = 18443
+
+[[proxies]]
+name = "jira_web"
+type = "tcp"
+localIP = "yfjira.mychery.com"
+localPort = 80
+remotePort = 18080
