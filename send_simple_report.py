@@ -7,9 +7,15 @@ from collections import Counter
 from datetime import datetime
 
 DATA_DIR = "/root/jira_agent/data"
+# 群聊推送 Bot（Jira日报助手）
 FEISHU_APP_ID = "cli_aaabea78707a5ce2"
 FEISHU_APP_SECRET = "qYiWvXFnmQEaN66FiBvoOg34uVGzcaQe"
 FEISHU_CHAT_ID = "oc_321e2187f4d599c9c0156bd09b133d93"
+
+# 个人推送 Bot（OPENCLAW传输助手）
+PERSONAL_APP_ID = "cli_aaab8dfe57391cb0"
+PERSONAL_APP_SECRET = "KAYOuqXohBsnCEU2ahcF7cdqPWk2zE5E"
+PERSONAL_OPEN_ID = "ou_6037630b2167f9c1dc08266965ae58df"
 
 CONTROLLER_VALUE = "ICC-视觉"
 TARGET_STATUSES = {"已分配", "分析中", "修复中"}
@@ -119,8 +125,26 @@ if __name__ == "__main__":
     report = build_report()
     if report:
         print(report)
-        print("\n📤 推送飞书...")
+
+        # 群聊推送
+        print("\n📤 推送飞书群...")
         resp = send(report)
         print(json.dumps(resp, ensure_ascii=False, indent=2))
+
+        # 个人推送（用 OPENCLAW传输助手 bot）
+        p_token = requests.post(
+            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            json={"app_id": PERSONAL_APP_ID, "app_secret": PERSONAL_APP_SECRET},
+            timeout=10,
+        ).json().get("tenant_access_token", "")
+
+        resp2 = requests.post(
+            f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
+            headers={"Authorization": f"Bearer {p_token}", "Content-Type": "application/json"},
+            json={"receive_id": PERSONAL_OPEN_ID, "msg_type": "text",
+                  "content": json.dumps({"text": report})},
+            timeout=15,
+        ).json()
+        print(f"📤 推送个人飞书: {'✅' if resp2.get('code') == 0 else '❌ ' + resp2.get('msg','')}")
     else:
         print("❌ 无数据")
