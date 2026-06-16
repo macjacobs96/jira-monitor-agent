@@ -18,7 +18,8 @@ PERSONAL_APP_SECRET = "KAYOuqXohBsnCEU2ahcF7cdqPWk2zE5E"
 PERSONAL_OPEN_ID = "ou_6037630b2167f9c1dc08266965ae58df"
 
 CONTROLLER_VALUE = "ICC-视觉"
-TARGET_STATUSES = {"已分配", "分析中", "修复中"}
+ACTIVE_STATUSES = {"已分配", "分析中", "修复中", "验收中", "处理中", "挂起", "申请挂起中"}
+CLOSED_STATUSES = {"完成", "已关闭", "已解决"}
 PRIO_EMOJI = {"Highest": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}
 
 
@@ -72,9 +73,25 @@ def build_report():
         if CONTROLLER_VALUE not in cf:
             continue
         status = i.get("fields", {}).get("status", {}).get("name", "")
-        if status not in TARGET_STATUSES:
+        if status not in ACTIVE_STATUSES:
             continue
         active.append(i)
+
+    # 健康检测 — 额外拉入全部控制器的活跃问题
+    health_extra = []
+    seen_keys = {i["key"] for i in active}
+    for i in issues:
+        if i["key"] in seen_keys:
+            continue
+        summary = i.get("fields", {}).get("summary", "")
+        if "健康检测" not in summary:
+            continue
+        status = i.get("fields", {}).get("status", {}).get("name", "")
+        if status in CLOSED_STATUSES:
+            continue
+        health_extra.append(i)
+
+    active.extend(health_extra)
 
     if not active:
         return f"📊 E0V Jira 待处理日报\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n✅ 暂无待处理 Case 🎉"
@@ -116,7 +133,17 @@ def build_report():
         lines.append("")
 
     lines.append("---")
-    lines.append("🤖 全自动采集 · 服务器直连")
+    w = __import__("datetime").datetime.now().weekday()
+    footers = {
+    0: "新的一周开始了，王晓宾（宾哥）提醒您看bug了",
+    1: "你知道为什么宾哥和神父会羡慕日本吗？因为在日本，天上会掉小男孩",
+    2: "你知道种族歧视的文言文怎么说吗？----以色列人",
+    3: "今天周四，宾哥提醒你修完bug发版了。",
+    4: "午时三刻，监斩官丢出令牌，刽子手举刀正要行刑。忽闻待斩王晓宾（宾哥）仰天大笑。刽子手愣了几秒，监斩官问：尔等为何发笑？片刻后，王晓宾（宾哥）答道：郎中果然没说错，每天笑一笑，可延长寿命三秒",
+    5: "周六了，宾哥还在等你的bug",
+    6: "周日，上帝都休息了，宾哥还在看Jira",
+    }
+    lines.append(footers.get(w))
 
     return "\n".join(lines)
 
@@ -130,21 +157,21 @@ if __name__ == "__main__":
         print("\n📤 推送飞书群...")
         resp = send(report)
         print(json.dumps(resp, ensure_ascii=False, indent=2))
-
-        # 个人推送（用 OPENCLAW传输助手 bot）
-        p_token = requests.post(
-            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-            json={"app_id": PERSONAL_APP_ID, "app_secret": PERSONAL_APP_SECRET},
-            timeout=10,
-        ).json().get("tenant_access_token", "")
-
-        resp2 = requests.post(
-            f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
-            headers={"Authorization": f"Bearer {p_token}", "Content-Type": "application/json"},
-            json={"receive_id": PERSONAL_OPEN_ID, "msg_type": "text",
-                  "content": json.dumps({"text": report})},
-            timeout=15,
-        ).json()
-        print(f"📤 推送个人飞书: {'✅' if resp2.get('code') == 0 else '❌ ' + resp2.get('msg','')}")
-    else:
+#
+#        # 个人推送（用 OPENCLAW传输助手 bot）
+#        p_token = requests.post(
+#            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+#            json={"app_id": PERSONAL_APP_ID, "app_secret": PERSONAL_APP_SECRET},
+#            timeout=10,
+#        ).json().get("tenant_access_token", "")
+#
+#        resp2 = requests.post(
+#            f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
+#            headers={"Authorization": f"Bearer {p_token}", "Content-Type": "application/json"},
+#            json={"receive_id": PERSONAL_OPEN_ID, "msg_type": "text",
+#                  "content": json.dumps({"text": report})},
+#            timeout=15,
+#        ).json()
+#        print(f"📤 推送个人飞书: {'✅' if resp2.get('code') == 0 else '❌ ' + resp2.get('msg','')}")
+#    else:
         print("❌ 无数据")
